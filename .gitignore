@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.run
+*.deb
+*.zip
+*.tar.gz
+*.pt.1
+dataset/
+image/
+masks/
+auto_masks/
+process/
+image_auto/
+image_assist_ans/
+image_assist_process/
