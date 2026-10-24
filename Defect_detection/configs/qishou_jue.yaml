@@ -1,0 +1,106 @@
+# ============================================================
+# per-SKU 配置：qishou_jue（骑兽爵）
+# ============================================================
+
+sku: qishou_jue
+
+# ---------- 成像 / 尺度 ----------
+# 玩偶实物高度(mm)。500mm 大件就填 500
+object_height_mm: 500.0
+# 若你已精确标定 mm/px（原图尺度），直接填这里；否则留空用 object_height_mm 推导
+mm_per_px_orig: null
+# 归一化目标：每毫米多少像素。500mm * 6.67 = 3335，被 canon_max_px 截到 3072
+canon_target_px_per_mm: 6.67
+# 归一化图最大边长（防止爆内存）
+canon_max_px: 3072
+canon_min_px: 512
+
+# ---------- ROI ----------
+# 单个 ROI 物理边长(mm)。约束: roi_mm <= 171 * 阈值(mm)
+# 阈值 1.2mm -> roi_mm <= 205。取 160: 6 块可覆盖约 84% 物体，
+# 且 ROI 内 1.2mm 仍有 3.8px，不浪费源图分辨率
+roi_mm: 160.0
+roi_overlap: 0.12          # ROI 之间重叠比例，防跨块瑕疵被切碎
+roi_out_px: 512            # 送进 PatchCore 的尺寸
+roi_min_cover: 0.35        # ROI 内物体像素占比低于此值则丢弃
+roi_max_count: 6           # 每张最多保留几个 ROI(按覆盖率取前N)，防止模型数量爆炸
+roi_mode: key              # key=只切关键区(推荐,4~6块)  grid=全覆盖(块多)
+level1_px: 512             # 整图粗检尺寸
+
+# 关键区（归一化坐标 0~1，相对 canonical 正方形）
+# 默认：上半身(脸/胸) + 中段主体。按你的款调整，或用 mark_exclude.py 反着选
+key_regions:
+  - [0.20, 0.08, 0.80, 0.48]     # 头/胸
+  - [0.12, 0.40, 0.88, 0.92]     # 身体主体
+
+# ---------- PatchCore ----------
+patchcore:
+  backbone: wide_resnet50_2
+  layers: [layer2, layer3]
+  coreset_sampling_ratio: 0.05   # 开了姿态增强要压低，否则 memory bank 爆炸
+  num_neighbors: 3               # 小瑕疵别被平滑掉
+
+# ---------- 样本筛选 ----------
+# 正常(OK)样本白名单：只有列在这里的 stem 会参与训练。
+# 留空 = rois/<sku>/ 下所有样本都当作正常 —— 瑕疵图混进来会污染 memory bank！
+# 例:
+#   normal_stems:
+#     - ok_001_white
+#     - ok_002_white
+normal_stems: []
+
+# ---------- 训练 ----------
+train:
+  epochs: 1                      # PatchCore 是单遍特征入库，1 epoch 即可
+  batch_size: 8
+  num_workers: 0
+  val_ratio: 0.2
+
+# ---------- 姿态增强（训练时做，推理时不做）----------
+aug:
+  enable: true
+  copies: 8
+  rot_deg: 5.0
+  translate: 0.03
+  scale: 0.05
+  brightness: 0.08
+
+# ---------- 阈值（单位 mm，等效直径）----------
+# 受源图分辨率限制：原图 1280x1706，500mm 玩偶只占 1267px
+#   -> mm_per_px_orig = 0.395，0.5mm 瑕疵在原图上仅 1.27px，与噪声不可分
+# 可靠检出下限 ~ 3px(原图) ~ 1.2mm，故阈值整体上移到 1.2 起步
+thresholds_mm:
+  face: 1.2      # 脸 / 正面主视觉（A面）
+  body: 1.5      # 侧面、手臂、背（B面）
+  hidden: 2.5    # 底部、内侧、被遮挡（C面）
+
+# 分区（归一化坐标），用于判定瑕疵落在哪个区；自下而上匹配，后面的优先
+zones:
+  hidden:
+    - [0.00, 0.85, 1.00, 1.00]
+  face:
+    - [0.25, 0.05, 0.75, 0.40]
+  body:
+    - [0.00, 0.00, 1.00, 1.00]   # 兜底：其余都算 body
+
+# 设计图案屏蔽区（归一化坐标矩形），这些区域不参与判级
+# 用 mark_exclude.py 画好后自动写回这里
+exclude_regions: []
+
+# ---------- 判级 ----------
+grading:
+  # 检测下限已是 1.2mm，t1 必须 >= 该下限，否则「微瑕」档永远不会出现
+  t1: 2.0        # <= t1 且数量少 -> 微瑕
+  t2: 4.0        # <= t2 -> 明显瑕疵；> t2 -> 残次
+  escalate_count: 3   # 达到这个数量，等级往上提一级
+
+# ---------- 异常图阈值 ----------
+# 训练后自动标定写入 results/<sku>/<roi>/threshold.json
+# 这里的值仅在标定失败时兜底
+map_thresh: 0.5
+
+# ---------- 可接受清单（仅写进报告，给人看）----------
+accept_list:
+  - 合模线
+  - 顶针痕
+  - 轻微套色偏移

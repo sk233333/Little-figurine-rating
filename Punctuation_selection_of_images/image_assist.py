@@ -3,16 +3,25 @@
 """
 SAM 2 交互标注切割工具（独立项目）
 ================================
-读图目录: image/
-输出：
-    image_assist_ans/       白底抠图结果图（每张一张）
-                            qml_001_white.png
-    image_assist_process/   四图对比（每张一张）
-                            qml_001_vis.png
-    （其余中间图不再保存；需要训练时加 --save-mask 才额外存 *_mask.png）
+默认处理 OK 图（--type ok）：
+    读图目录: image/
+    输出：
+        image_assist_ans/       白底抠图结果图（每张一张）
+                                qml_001_white.png
+        image_assist_process/   四图对比（每张一张）
+                                qml_001_vis.png
+        （其余中间图不再保存；需要训练时加 --save-mask 才额外存 *_mask.png）
+
+处理瑕图时加 --type xia：
+    读图目录: image_xia/
+    输出：
+        image_assist_xia_ans/   白底抠图结果图
+        image_assist_xia_process/ 四图对比
 
 用法：
-    python3 image_assist.py                 批量标注 image/ 下所有图
+    python3 image_assist.py                 先问你是 OK 图还是瑕图，再批量标注
+    python3 image_assist.py --type xia      直接指定瑕图，跳过询问
+    python3 image_assist.py --type ok       直接指定 OK 图
     python3 image_assist.py qml_001         只标这一张
     python3 image_assist.py --skip-done     跳过已标注的
     python3 image_assist.py --start 10      从第 11 张开始
@@ -58,7 +67,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGE_DIR = os.path.join(BASE_DIR, "image")
 ANS_DIR = os.path.join(BASE_DIR, "image_assist_ans")
 PROCESS_DIR = os.path.join(BASE_DIR, "image_assist_process")
+
+# 瑕图：读 image_xia/ -> 写 image_assist_xia_ans/ + image_assist_xia_process/
+XIA_IMAGE_DIR = os.path.join(BASE_DIR, "image_xia")
+XIA_ANS_DIR = os.path.join(BASE_DIR, "image_assist_xia_ans")
+XIA_PROCESS_DIR = os.path.join(BASE_DIR, "image_assist_xia_process")
+
 CKPT = os.path.join(BASE_DIR, "sam2.1_hiera_small.pt")
+
+# --type 到默认目录的映射
+TYPE_DIRS = {
+    "ok": (IMAGE_DIR, ANS_DIR, PROCESS_DIR),
+    "xia": (XIA_IMAGE_DIR, XIA_ANS_DIR, XIA_PROCESS_DIR),
+}
 
 IMG_EXT = ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp",
            "*.JPG", "*.JPEG", "*.PNG", "*.BMP", "*.WEBP")
@@ -476,14 +497,39 @@ def process_one(predictor, path, prefix, ans_dir, process_dir,
 
 
 # ------------------------------------------------------------------
+def choose_type():
+    """运行时选择要处理的图片类型。"""
+    print("\n请选择要处理的图片类型：")
+    print(f"  1) OK 图   读 {IMAGE_DIR}")
+    print(f"             写 {ANS_DIR}")
+    print(f"  2) 瑕图    读 {XIA_IMAGE_DIR}")
+    print(f"             写 {XIA_ANS_DIR}")
+    if not sys.stdin.isatty():
+        print("[非交互环境] 使用默认 1) OK 图")
+        return "ok"
+    while True:
+        s = input("请输入 1 或 2 [默认 1]: ").strip()
+        if s in ("", "1"):
+            return "ok"
+        if s == "2":
+            return "xia"
+        print("  无效输入，请输入 1 或 2")
+
+
+# ------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(
-        description="SAM 2 交互标注切割（image/ -> image_assist_ans/ + image_assist_process/）")
+        description="SAM 2 交互标注切割（运行时选择 OK 图 / 瑕图）")
     ap.add_argument("name", nargs="?", default=None,
                     help="只标某一张，可写文件名或关键字")
-    ap.add_argument("--image-dir", default=IMAGE_DIR)
-    ap.add_argument("--ans-dir", default=ANS_DIR)
-    ap.add_argument("--process-dir", default=PROCESS_DIR)
+    ap.add_argument("--type", default=None, choices=["ok", "xia"],
+                    help="ok=OK图(image/)  xia=瑕图(image_xia/)；不填则运行时询问")
+    ap.add_argument("--image-dir", default=None,
+                    help="覆盖 --type 的读图目录")
+    ap.add_argument("--ans-dir", default=None,
+                    help="覆盖 --type 的白底结果输出目录")
+    ap.add_argument("--process-dir", default=None,
+                    help="覆盖 --type 的对比图输出目录")
     ap.add_argument("--checkpoint", default=CKPT)
     ap.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     ap.add_argument("--start", type=int, default=0, help="从第几张开始(0基)")
@@ -492,8 +538,19 @@ def main():
                     help="额外保存灰度 mask（训练时才需要）")
     args = ap.parse_args()
 
+    if args.type is None:
+        args.type = choose_type()
+
+    d_image, d_ans, d_process = TYPE_DIRS[args.type]
+    args.image_dir = args.image_dir or d_image
+    args.ans_dir = args.ans_dir or d_ans
+    args.process_dir = args.process_dir or d_process
+
     os.makedirs(args.ans_dir, exist_ok=True)
     os.makedirs(args.process_dir, exist_ok=True)
+
+    print(f"[类型] {args.type}"
+          + ("（OK图）" if args.type == "ok" else "（瑕图）"))
 
     if not os.path.isdir(args.image_dir):
         print(f"图片目录不存在: {args.image_dir}")

@@ -13,3 +13,23 @@ process/
 image_auto/
 image_assist_ans/
 image_assist_process/
+image_assist_xia_ans/
+image_assist_xia_process/
+image_xia/
+
+# ---- Defect_detection 中间产物 / 模型 / 数据（体积大，不入库）----
+Defect_detection/canonical/
+Defect_detection/rois/
+Defect_detection/datasets/
+Defect_detection/results/
+Defect_detection/data/
+Defect_detection/_scratch/
+Defect_detection/out/
+Defect_detection/reports/*
+# 只保留结果说明文档
+!Defect_detection/reports/bgy_xia/
+Defect_detection/reports/bgy_xia/*
+!Defect_detection/reports/bgy_xia/result.md
+*.pt
+*.pth
+*.ckpt
